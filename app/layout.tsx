@@ -1,8 +1,18 @@
+// app/layout.tsx
+//
+// Root metadata derives entirely from the site_settings row. There are no
+// hardcoded domains, titles, descriptions, or OG images — that pattern is
+// what puts the wrong business identity into every page of a client site.
+//
+// Fonts are the one thing that stays in code: next/font requires static
+// imports at build time. The theme's fontHeading / fontBody tokens select
+// which of these the CSS variables point at.
+
 import type { Metadata } from 'next'
 import { Fraunces, Inter, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
-import { ClarkyChat } from '@/components/clarky-chat'
-import { MobileApplyBar } from '@/components/mobile-apply-bar'
+import { getSite } from '@/lib/site'
+import { rootMetadata } from '@/lib/seo'
 import './globals.css'
 
 const inter = Inter({
@@ -13,7 +23,7 @@ const inter = Inter({
 
 const fraunces = Fraunces({
   subsets: ['latin'],
-  variable: '--font-heading',
+  variable: '--font-serif',
   display: 'swap',
   axes: ['opsz'],
 })
@@ -21,43 +31,22 @@ const fraunces = Fraunces({
 const geistMono = Geist_Mono({
   subsets: ['latin'],
   variable: '--font-mono',
+  display: 'swap',
 })
 
-const SITE_URL = 'https://baytobaylending.com'
-const OG_IMAGE_URL =
-  'https://toivhpeabwwqilbzbrfb.supabase.co/storage/v1/object/public/Website%20Photos/BaytoBay-bridge.png'
+export async function generateMetadata(): Promise<Metadata> {
+  const site = await getSite()
 
-export const metadata: Metadata = {
-  metadataBase: new URL(SITE_URL),
-  title: {
-    default: 'Bay to Bay Lending | Tampa Mortgage Lender',
-    template: '%s | Bay to Bay Lending',
-  },
-  description:
-    'Bay to Bay Lending is your trusted Tampa, Florida mortgage lender. Whether you are buying your first home, refinancing, or tapping equity, we make the loan process simple and stress-free.',
-  keywords: ['mortgage', 'home loan', 'Tampa', 'Florida', 'refinance', 'HELOC', 'first-time homebuyer'],
-  authors: [{ name: 'Bay to Bay Lending' }],
-  openGraph: {
-    type: 'website',
-    locale: 'en_US',
-    siteName: 'Bay to Bay Lending',
-    url: SITE_URL,
-    images: [
-      {
-        url: OG_IMAGE_URL,
-        width: 1200,
-        height: 630,
-        alt: 'Bay to Bay Lending',
-      },
-    ],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Bay to Bay Lending | Tampa Mortgage Lender',
-    description:
-      'Your trusted Tampa, Florida mortgage lender. Buying, refinancing, or tapping equity made simple.',
-    images: [OG_IMAGE_URL],
-  },
+  // No site row yet (fresh template, missing env vars). Return something
+  // inert rather than throwing — the page itself will 404.
+  if (!site) {
+    return {
+      title: 'Site',
+      robots: { index: false, follow: false },
+    }
+  }
+
+  return rootMetadata(site)
 }
 
 export default function RootLayout({
@@ -68,13 +57,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${fraunces.variable} ${geistMono.variable} bg-background`}
+      className={`${inter.variable} ${fraunces.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
-        <ClarkyChat />
-        <MobileApplyBar phone="(813) 251-2700" />
       </body>
     </html>
   )
