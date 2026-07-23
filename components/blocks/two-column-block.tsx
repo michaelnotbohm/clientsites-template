@@ -5,23 +5,19 @@ import { getEmbeddableComponent } from './registry'
 // components/blocks/two-column-block.tsx
 //
 // Generic layout primitive: renders two child blocks side by side. Each child
-// is looked up from the shared block registry and rendered in EMBEDDED mode
-// (no outer section chrome), so this block owns the section padding, optional
-// heading, container, and the responsive two-column grid.
+// resolves through the shared registry and renders in EMBEDDED mode (no outer
+// section chrome), so this block owns the section padding, optional heading,
+// container, and the responsive grid.
 //
-// Industry-agnostic and reusable: any two embeddable blocks can be composed
-// (rates + calculator, testimonial + image, faq + form, ...). The children are
-// defined inline in this block's content JSON — no schema/nesting change.
+// Industry-agnostic and reusable: any two embeddable blocks compose — a
+// calculator beside a form, a testimonial beside an image, an FAQ beside a
+// media_text. Children are defined inline in this block's content JSON, so
+// adding a composition needs no schema change.
 //
-// content shape (TwoColumnContent):
-//   { heading?, subheading?, left: ChildBlock, right: ChildBlock,
-//     ratio?: '1:1'|'5:7'|'7:5'|'4:6'|'6:4', align?: 'start'|'center'|'stretch' }
-//
-// On mobile the columns stack (left on top). Unknown / non-embeddable child
-// types render nothing (never crash), matching the renderer's skip behavior.
+// On mobile the columns stack, left on top. Unknown child types render
+// nothing rather than crashing, matching the top-level renderer's behaviour.
 // =============================================================================
 
-// Desktop column templates per ratio. Mobile is always single-column (stack).
 const RATIO_CLASS: Record<NonNullable<TwoColumnContent['ratio']>, string> = {
   '1:1': 'lg:grid-cols-2',
   '5:7': 'lg:grid-cols-[5fr_7fr]',
@@ -36,49 +32,59 @@ const ALIGN_CLASS: Record<NonNullable<TwoColumnContent['align']>, string> = {
   stretch: 'items-stretch',
 }
 
-export function TwoColumnBlock({ content, tenant }: BlockProps<TwoColumnContent>) {
-  const c = content as TwoColumnContent
-  const ratioClass = RATIO_CLASS[c.ratio ?? '1:1']
-  const alignClass = ALIGN_CLASS[c.align ?? 'stretch']
+export function TwoColumnBlock({ content, site }: BlockProps<TwoColumnContent>) {
+  const { heading, subheading, left, right, ratio = '1:1', align = 'stretch' } =
+    content
+
+  const ratioClass = RATIO_CLASS[ratio] ?? RATIO_CLASS['1:1']
+  const alignClass = ALIGN_CLASS[align] ?? ALIGN_CLASS.stretch
 
   const renderChild = (child: ChildBlock | undefined) => {
-    if (!child || !child.type) return null
+    if (!child?.type) return null
+
     const Component = getEmbeddableComponent(child.type)
-    if (!Component) return null
+
+    if (!Component) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          `[TwoColumnBlock] No embeddable component registered for type "${child.type}". ` +
+            `Add it to components/blocks/registry.ts.`,
+        )
+      }
+      return null
+    }
+
     return (
       <Component
         content={child.content}
-        tenant={tenant}
+        site={site}
         variant={child.variant}
         embedded
       />
     )
   }
 
-  const left = renderChild(c.left)
-  const right = renderChild(c.right)
-
   return (
-    <section className="py-16 md:py-24 bg-[var(--color-surface)]">
+    <section className="bg-[var(--color-surface)] py-16 md:py-24">
       <div className="container mx-auto px-4">
-        {(c.heading || c.subheading) && (
-          <div className="mx-auto max-w-2xl text-center mb-10">
-            {c.heading && (
-              <h2 className="text-3xl md:text-4xl font-bold font-[var(--font-heading)] text-[var(--color-secondary)]">
-                {c.heading}
+        {(heading || subheading) && (
+          <div className="mx-auto mb-10 max-w-2xl text-center">
+            {heading && (
+              <h2 className="font-[var(--font-heading)] text-3xl font-bold text-[var(--color-secondary)] md:text-4xl">
+                {heading}
               </h2>
             )}
-            {c.subheading && (
+            {subheading && (
               <p className="mt-4 text-lg leading-relaxed text-[var(--color-foreground)]/70">
-                {c.subheading}
+                {subheading}
               </p>
             )}
           </div>
         )}
 
         <div className={`grid grid-cols-1 gap-8 ${ratioClass} ${alignClass}`}>
-          <div className="min-w-0">{left}</div>
-          <div className="min-w-0">{right}</div>
+          <div className="min-w-0">{renderChild(left)}</div>
+          <div className="min-w-0">{renderChild(right)}</div>
         </div>
       </div>
     </section>
