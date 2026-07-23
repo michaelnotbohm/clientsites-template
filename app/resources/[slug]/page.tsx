@@ -1,26 +1,30 @@
 // app/resources/[slug]/page.tsx
 //
 // Dual-purpose route under /resources/<slug>:
-//   - If <slug> matches a CATEGORY (city or topic) -> category landing page.
-//   - Otherwise -> ARTICLE slug -> full article render.
+//   - <slug> matches a CATEGORY  -> category landing page
+//   - otherwise                  -> ARTICLE
 //
-// Composition matches the rest of the site: getTenant() -> ThemeWrapper ->
-// bordered frame -> SiteNav -> <main> -> SiteFooter.
+// Post and category slugs share this namespace. The schema enforces
+// uniqueness across both with a trigger, so a collision fails at write time
+// rather than silently shadowing one of them here.
 //
-// Body column note: articles store rendered HTML in `content` (the only body
-// column on the posts table). It is injected via dangerouslySetInnerHTML and
-// styled by a scoped `.article-body` block (no @tailwindcss/typography plugin;
-// no globals.css change). All type/spacing/link styling derives from the
-// tenant theme CSS variables.
+// Body column: posts.content holds rendered HTML and is the only body column.
+// There is no content_html and no body — selecting a column that does not
+// exist makes PostgREST 400, the JS client return null, and this route 404
+// with no visible error.
 
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { getTenant } from '@/lib/tenant'
-import { ThemeWrapper } from '@/components/theme-wrapper'
-import { SiteNav } from '@/components/layout/site-nav'
-import { SiteFooter } from '@/components/layout/site-footer'
-import type { NavLink } from '@/components/layout/site-nav'
+import { getSite } from '@/lib/site'
+import { buildMetadata, postMetadata } from '@/lib/seo'
+import {
+  articleSchema,
+  collectionSchema,
+  breadcrumbSchema,
+  jsonLd,
+} from '@/lib/schema'
+import { SiteShell } from '@/components/layout/site-shell'
 import {
   getCategoryBySlug,
   getCategoryById,
@@ -32,30 +36,11 @@ import {
 import { ResourcesCategoryBar } from '@/components/resources/resources-category-bar'
 import { ResourcesPostGrid } from '@/components/resources/resources-post-grid'
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const revalidate = 60
 
-const DEFAULT_NAV_LINKS: NavLink[] = [
-  {
-    label: 'Loan Programs',
-    href: '/buy',
-    children: [
-      { label: 'Conventional Mortgages', href: '/loan-options/conventional' },
-      { label: 'FHA Loans', href: '/loan-options/fha' },
-      { label: 'VA Mortgages', href: '/loan-options/va' },
-      { label: 'USDA Loans', href: '/loan-options/usda' },
-      { label: 'Jumbo Mortgages', href: '/loan-options/jumbo' },
-      { label: 'Refinance', href: '/refinance' },
-      { label: 'HELOC', href: '/heloc' },
-      { label: 'All Loan Options', href: '/buy' },
-    ],
-  },
-  { label: 'Calculators', href: '/calculators' },
-  { label: 'Resources', href: '/resources' },
-  { label: 'Loan Originators', href: '/loan-originators' },
-  { label: 'About', href: '/about' },
-  { label: 'Contact', href: '/connect' },
-]
+interface RouteProps {
+  params: Promise<{ slug: string }>
+}
 
 function formatDate(dateString: string | null): string | null {
   if (!dateString) return null
@@ -68,301 +53,268 @@ function formatDate(dateString: string | null): string | null {
 
 export async function generateMetadata({
   params,
-}: {
-  params: Promise<{ slug: string }>
-}): Promise<Metadata> {
+}: RouteProps): Promise<Metadata> {
   const { slug } = await params
-  const tenant = await getTenant()
-  if (!tenant) return {}
+  const site = await getSite()
+  if (!site) return {}
 
-  const category = await getCategoryBySlug(tenant.id, slug)
+  const category = await getCategoryBySlug(slug)
   if (category) {
-    const isLocation = category.type === 'location'
-    return {
-      title: isLocation
-        ? `Mortgage Resources for ${category.name}, FL`
-        : `${category.name} — Mortgage Guides`,
-      description: category.description ?? undefined,
-    }
+    return buildMetadata({
+      site,
+      path: `/resources/${category.slug}`,
+      title: category.name,
+      description: category.description,
+    })
   }
 
-  const post = await getPostBySlug(tenant.id, slug)
+  const post = await getPostBySlug(slug)
   if (post) {
-    return {
-      title: post.meta_title || `${post.title} | ${tenant.name}`,
-      description: post.meta_description || post.excerpt || undefined,
-    }
+    return postMetadata(site, {
+      ...post,
+      updated_at: post.published_at ?? new Date().toISOString(),
+    })
   }
 
   return {}
 }
 
-export default async function ResourceSlugPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
+export default async function ResourceSlugPage({ params }: RouteProps) {
   const { slug } = await params
-  const tenant = await getTenant()
-  if (!tenant) notFound()
+  const site = await getSite()
+  if (!site) notFound()
 
-  const category = await getCategoryBySlug(tenant.id, slug)
+  const category = await getCategoryBySlug(slug)
 
   // ── CATEGORY BRANCH ───────────────────────────────────────────────────────
   if (category) {
     const [posts, allCategories] = await Promise.all([
-      getPostsByCategory(tenant.id, category.id),
-      getCategories(tenant.id),
+      getPostsByCategory(category.id),
+      getCategories(),
     ])
     const { locationCategories, topicCategories } = splitCategories(allCategories)
-    const isLocation = category.type === 'location'
-    const base = `https://${tenant.domain}`
-    const pageUrl = `${base}/resources/${category.slug}`
+
+    const breadcrumbs = breadcrumbSchema(site, [
+      { name: 'Home', path: '/' },
+      { name: 'Resources', path: '/resources' },
+      { name: category.name, path: `/resources/${category.slug}` },
+    ])
 
     return (
-      <ThemeWrapper tenant={tenant}>
-        <div className="min-h-screen flex flex-col">
-          <div className="border border-[var(--color-border)] m-2 md:m-4 min-h-[calc(100vh-1rem)] md:min-h-[calc(100vh-2rem)] flex flex-col">
-            <SiteNav tenant={tenant} navLinks={DEFAULT_NAV_LINKS} />
+      <>
+        <SiteShell site={site}>
+          <section className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+            <div className="container mx-auto px-4 py-14 md:py-16">
+              <nav className="mb-6" aria-label="Breadcrumb">
+                <ol className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+                  <li>
+                    <Link href="/" className="hover:text-[var(--color-foreground)]">
+                      Home
+                    </Link>
+                  </li>
+                  <li aria-hidden="true">/</li>
+                  <li>
+                    <Link
+                      href="/resources"
+                      className="hover:text-[var(--color-foreground)]"
+                    >
+                      Resources
+                    </Link>
+                  </li>
+                  <li aria-hidden="true">/</li>
+                  <li className="text-[var(--color-foreground)]">{category.name}</li>
+                </ol>
+              </nav>
 
-            <main className="flex-1">
-              {/* Hero */}
-              <section className="relative overflow-hidden bg-[var(--color-secondary)]">
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, var(--color-secondary) 0%, color-mix(in srgb, var(--color-secondary) 80%, black) 100%)',
-                  }}
-                />
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    background:
-                      'radial-gradient(120% 120% at 85% 15%, color-mix(in srgb, var(--color-primary) 45%, transparent) 0%, transparent 55%)',
-                  }}
-                />
-                <div className="absolute left-0 top-0 h-1 w-full bg-[#C8102E]" />
-                <div className="container relative z-10 mx-auto px-4 py-14 md:py-16">
-                  <nav className="mb-6" aria-label="Breadcrumb">
-                    <ol className="flex items-center gap-2 text-sm text-white/60">
-                      <li><Link href="/" className="hover:text-white">Home</Link></li>
-                      <li>/</li>
-                      <li><Link href="/resources" className="hover:text-white">Resources</Link></li>
-                      <li>/</li>
-                      <li className="text-white/40">{category.name}</li>
-                    </ol>
-                  </nav>
-                  <h1 className="font-[var(--font-heading)] text-4xl font-bold tracking-tight text-white md:text-5xl">
-                    {isLocation
-                      ? `Mortgage Resources for ${category.name}, FL`
-                      : `${category.name} — Mortgage Guides`}
-                  </h1>
-                  {category.description && (
-                    <p className="mt-4 max-w-2xl text-lg leading-relaxed text-white/80">
-                      {category.description}
-                    </p>
-                  )}
-                  <p className="mt-4 text-sm text-white/60">
-                    {posts.length} {posts.length === 1 ? 'article' : 'articles'}
-                  </p>
-                </div>
-              </section>
+              <h1 className="font-[var(--font-heading)] text-4xl font-bold tracking-tight text-[var(--color-foreground)] md:text-5xl">
+                {category.name}
+              </h1>
+              {category.description && (
+                <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[var(--color-muted)]">
+                  {category.description}
+                </p>
+              )}
+              <p className="mt-4 text-sm text-[var(--color-muted)]">
+                {posts.length} {posts.length === 1 ? 'article' : 'articles'}
+              </p>
+            </div>
+          </section>
 
-              <ResourcesCategoryBar
-                locationCategories={locationCategories}
-                topicCategories={topicCategories}
-                currentSlug={category.slug}
-              />
+          <ResourcesCategoryBar
+            locationCategories={locationCategories}
+            topicCategories={topicCategories}
+            currentSlug={category.slug}
+          />
 
-              <section className="py-12 md:py-16 bg-[var(--color-surface)]">
-                <div className="container mx-auto px-4">
-                  {posts.length > 0 ? (
-                    <ResourcesPostGrid posts={posts} />
-                  ) : (
-                    <p className="text-[var(--color-muted)]">No articles in this category yet.</p>
-                  )}
-                </div>
-              </section>
-            </main>
+          <section className="bg-[var(--color-background)] py-12 md:py-16">
+            <div className="container mx-auto px-4">
+              {posts.length > 0 ? (
+                <ResourcesPostGrid posts={posts} />
+              ) : (
+                <p className="text-[var(--color-muted)]">
+                  No articles in this category yet.
+                </p>
+              )}
+            </div>
+          </section>
+        </SiteShell>
 
-            <SiteFooter tenant={tenant} />
-          </div>
-        </div>
-
-        {/* CollectionPage + (cities) LocalBusiness schema — tenant-domain identity */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@type': 'CollectionPage',
-              name: isLocation
-                ? `Mortgage Resources for ${category.name}, FL`
-                : `${category.name} — Mortgage Guides`,
-              description: category.description || undefined,
-              url: pageUrl,
-              publisher: { '@type': 'Organization', name: tenant.name, url: base },
-            }),
+            __html: jsonLd(collectionSchema(site, category, posts.length)),
           }}
         />
-        {isLocation && (
-          <script
-            type="application/ld+json"
-            dangerouslySetInnerHTML={{
-              __html: JSON.stringify({
-                '@context': 'https://schema.org',
-                '@type': 'FinancialService',
-                name: tenant.name,
-                url: base,
-                areaServed: {
-                  '@type': 'City',
-                  name: category.name,
-                  containedInPlace: { '@type': 'State', name: 'Florida' },
-                },
-              }),
-            }}
-          />
-        )}
-      </ThemeWrapper>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: jsonLd(breadcrumbs) }}
+        />
+      </>
     )
   }
 
   // ── ARTICLE BRANCH ────────────────────────────────────────────────────────
-  const post = await getPostBySlug(tenant.id, slug)
+  const post = await getPostBySlug(slug)
   if (!post) notFound()
 
   const articleCategory = post.category_id
-    ? await getCategoryById(tenant.id, post.category_id)
+    ? await getCategoryById(post.category_id)
     : null
 
-  const base = `https://${tenant.domain}`
-  const pageUrl = `${base}/resources/${post.slug}`
   const publishedLabel = formatDate(post.published_at)
 
-  // Body: `content` holds rendered HTML; inject directly.
-  const htmlBody = post.content
+  const breadcrumbs = breadcrumbSchema(site, [
+    { name: 'Home', path: '/' },
+    { name: 'Resources', path: '/resources' },
+    ...(articleCategory
+      ? [{ name: articleCategory.name, path: `/resources/${articleCategory.slug}` }]
+      : []),
+    { name: post.title, path: `/resources/${post.slug}` },
+  ])
+
+  // Askable may supply its own schema_json. Prefer it when present, but the
+  // builder is the safe default — a studio-generated node can carry the
+  // studio's own origin in canonical/url fields, which is exactly the
+  // identity leak this layer exists to prevent. Verify before trusting it.
+  const article = articleSchema(site, {
+    slug: post.slug,
+    title: post.title,
+    h1: null,
+    meta_description: post.meta_description,
+    excerpt: post.excerpt,
+    featured_image_url: post.featured_image_url,
+    published_at: post.published_at,
+    updated_at: post.published_at,
+    author: post.author,
+    word_count: post.word_count,
+  })
 
   return (
-    <ThemeWrapper tenant={tenant}>
-      <div className="min-h-screen flex flex-col">
-        <div className="border border-[var(--color-border)] m-2 md:m-4 min-h-[calc(100vh-1rem)] md:min-h-[calc(100vh-2rem)] flex flex-col">
-          <SiteNav tenant={tenant} navLinks={DEFAULT_NAV_LINKS} />
-
-          <main className="flex-1">
-            {/* Hero */}
-            <section className="relative overflow-hidden bg-[var(--color-secondary)]">
-              <div
-                className="absolute inset-0"
-                style={{
-                  background:
-                    'linear-gradient(135deg, var(--color-secondary) 0%, color-mix(in srgb, var(--color-secondary) 80%, black) 100%)',
-                }}
-              />
-              <div
-                className="absolute inset-0"
-                style={{
-                  background:
-                    'radial-gradient(120% 120% at 85% 15%, color-mix(in srgb, var(--color-primary) 45%, transparent) 0%, transparent 55%)',
-                }}
-              />
-              <div className="absolute left-0 top-0 h-1 w-full bg-[#C8102E]" />
-              <div className="container relative z-10 mx-auto px-4 py-14 md:py-16">
-                <nav className="mb-6" aria-label="Breadcrumb">
-                  <ol className="flex items-center gap-2 text-sm text-white/60">
-                    <li><Link href="/" className="hover:text-white">Home</Link></li>
-                    <li>/</li>
-                    <li><Link href="/resources" className="hover:text-white">Resources</Link></li>
-                    {articleCategory && (
-                      <>
-                        <li>/</li>
-                        <li>
-                          <Link
-                            href={`/resources/${articleCategory.slug}`}
-                            className="hover:text-white"
-                          >
-                            {articleCategory.name}
-                          </Link>
-                        </li>
-                      </>
-                    )}
-                  </ol>
-                </nav>
-                <h1 className="font-[var(--font-heading)] max-w-3xl text-4xl font-bold tracking-tight text-white md:text-5xl">
-                  {post.title}
-                </h1>
-                <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/60">
-                  {publishedLabel && <span>{publishedLabel}</span>}
-                  {publishedLabel && post.reading_time_minutes && (
-                    <span className="text-white/30">|</span>
-                  )}
-                  {post.reading_time_minutes && (
-                    <span>{post.reading_time_minutes} min read</span>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* Featured image */}
-            {post.featured_image_url && (
-              <section className="bg-[var(--color-surface)]">
-                <div className="container mx-auto px-4 pt-10 md:pt-12">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={post.featured_image_url}
-                    alt={post.featured_image_alt || post.title}
-                    className="w-full rounded-lg object-cover"
-                  />
-                </div>
-              </section>
-            )}
-
-            {/* Body */}
-            <section className="py-10 md:py-14 bg-[var(--color-surface)]">
-              <div className="container mx-auto px-4">
-                {htmlBody ? (
-                  <article
-                    className="article-body mx-auto max-w-3xl"
-                    dangerouslySetInnerHTML={{ __html: htmlBody }}
-                  />
-                ) : (
-                  <p className="mx-auto max-w-3xl text-[var(--color-muted)]">
-                    {post.excerpt}
-                  </p>
-                )}
-
-                <div className="mx-auto mt-12 max-w-3xl">
+    <>
+      <SiteShell site={site}>
+        <section className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="container mx-auto px-4 py-14 md:py-16">
+            <nav className="mb-6" aria-label="Breadcrumb">
+              <ol className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-muted)]">
+                <li>
+                  <Link href="/" className="hover:text-[var(--color-foreground)]">
+                    Home
+                  </Link>
+                </li>
+                <li aria-hidden="true">/</li>
+                <li>
                   <Link
                     href="/resources"
-                    className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:underline"
+                    className="hover:text-[var(--color-foreground)]"
                   >
-                    ← Back to Resources
+                    Resources
                   </Link>
-                </div>
-              </div>
-            </section>
-          </main>
+                </li>
+                {articleCategory && (
+                  <>
+                    <li aria-hidden="true">/</li>
+                    <li>
+                      <Link
+                        href={`/resources/${articleCategory.slug}`}
+                        className="hover:text-[var(--color-foreground)]"
+                      >
+                        {articleCategory.name}
+                      </Link>
+                    </li>
+                  </>
+                )}
+              </ol>
+            </nav>
 
-          <SiteFooter tenant={tenant} />
-        </div>
-      </div>
+            <h1 className="max-w-3xl font-[var(--font-heading)] text-4xl font-bold tracking-tight text-[var(--color-foreground)] md:text-5xl">
+              {post.title}
+            </h1>
 
-      {/* Scoped article typography — driven entirely by tenant theme tokens.
-          No @tailwindcss/typography plugin; no globals.css dependency. */}
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[var(--color-muted)]">
+              {publishedLabel && <span>{publishedLabel}</span>}
+              {publishedLabel && post.reading_time_minutes && (
+                <span aria-hidden="true">·</span>
+              )}
+              {post.reading_time_minutes && (
+                <span>{post.reading_time_minutes} min read</span>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {post.featured_image_url && (
+          <section className="bg-[var(--color-background)]">
+            <div className="container mx-auto px-4 pt-10 md:pt-12">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={post.featured_image_url}
+                alt={post.featured_image_alt || post.title}
+                className="w-full rounded-lg object-cover"
+              />
+            </div>
+          </section>
+        )}
+
+        <section className="bg-[var(--color-background)] py-10 md:py-14">
+          <div className="container mx-auto px-4">
+            {post.content ? (
+              <article
+                className="article-body mx-auto max-w-3xl"
+                dangerouslySetInnerHTML={{ __html: post.content }}
+              />
+            ) : (
+              <p className="mx-auto max-w-3xl text-[var(--color-muted)]">
+                {post.excerpt}
+              </p>
+            )}
+
+            <div className="mx-auto mt-12 max-w-3xl">
+              <Link
+                href="/resources"
+                className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:underline"
+              >
+                ← Back to Resources
+              </Link>
+            </div>
+          </div>
+        </section>
+      </SiteShell>
+
+      {/* Scoped article typography, driven entirely by theme tokens.
+          @tailwindcss/typography is deliberately not installed and
+          globals.css is deliberately untouched — reuse this pattern rather
+          than adding the plugin. */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
             .article-body {
-              color: var(--color-foreground, #1f2937);
+              color: var(--color-foreground);
+              font-family: var(--font-body);
               font-size: 1.125rem;
               line-height: 1.8;
             }
-            .article-body > *:first-child {
-              margin-top: 0;
-            }
-            .article-body p {
-              margin: 0 0 1.5rem;
-            }
+            .article-body > *:first-child { margin-top: 0; }
+            .article-body p { margin: 0 0 1.5rem; }
             .article-body h2 {
               font-family: var(--font-heading);
               color: var(--color-secondary);
@@ -388,48 +340,36 @@ export default async function ResourceSlugPage({
               font-weight: 700;
               margin: 2rem 0 0.75rem;
             }
+            .article-body h2:first-child,
+            .article-body h3:first-child { margin-top: 0; }
             .article-body a {
               color: var(--color-primary);
               text-decoration: underline;
               text-underline-offset: 2px;
               font-weight: 500;
             }
-            .article-body a:hover {
-              text-decoration: none;
-            }
+            .article-body a:hover { text-decoration: none; }
             .article-body strong {
               color: var(--color-secondary);
               font-weight: 700;
             }
-            .article-body ul,
-            .article-body ol {
+            .article-body ul, .article-body ol {
               margin: 0 0 1.5rem;
               padding-left: 1.5rem;
             }
-            .article-body ul {
-              list-style: disc;
-            }
-            .article-body ol {
-              list-style: decimal;
-            }
-            .article-body li {
-              margin: 0 0 0.5rem;
-              padding-left: 0.25rem;
-            }
-            .article-body li::marker {
-              color: var(--color-primary);
-            }
+            .article-body ul { list-style: disc; }
+            .article-body ol { list-style: decimal; }
+            .article-body li { margin: 0 0 0.5rem; padding-left: 0.25rem; }
+            .article-body li::marker { color: var(--color-primary); }
             .article-body blockquote {
               margin: 2rem 0;
               padding: 1rem 1.5rem;
               border-left: 4px solid var(--color-primary);
               background: color-mix(in srgb, var(--color-primary) 6%, transparent);
               font-style: italic;
-              color: var(--color-muted, #4b5563);
+              color: var(--color-muted);
             }
-            .article-body blockquote p:last-child {
-              margin-bottom: 0;
-            }
+            .article-body blockquote p:last-child { margin-bottom: 0; }
             .article-body img {
               border-radius: 0.5rem;
               margin: 2rem 0;
@@ -441,32 +381,18 @@ export default async function ResourceSlugPage({
               border-top: 1px solid var(--color-border);
               margin: 3rem 0;
             }
-            .article-body h2:first-child,
-            .article-body h3:first-child {
-              margin-top: 0;
-            }
           `,
         }}
       />
 
-      {/* BlogPosting schema — tenant-domain identity */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            '@context': 'https://schema.org',
-            '@type': 'BlogPosting',
-            headline: post.title,
-            description: post.meta_description || post.excerpt || undefined,
-            image: post.featured_image_url || undefined,
-            datePublished: post.published_at || undefined,
-            url: pageUrl,
-            mainEntityOfPage: { '@type': 'WebPage', '@id': pageUrl },
-            author: { '@type': 'Organization', name: tenant.name, url: base },
-            publisher: { '@type': 'Organization', name: tenant.name, url: base },
-          }),
-        }}
+        dangerouslySetInnerHTML={{ __html: jsonLd(article) }}
       />
-    </ThemeWrapper>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLd(breadcrumbs) }}
+      />
+    </>
   )
 }
