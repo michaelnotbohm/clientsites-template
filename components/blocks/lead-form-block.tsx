@@ -8,20 +8,37 @@ import { Label } from '@/components/ui/label'
 import { Loader2, CheckCircle } from 'lucide-react'
 import type { BlockProps, LeadFormContent } from './types'
 
-export function LeadFormBlock({ content, tenant }: BlockProps<LeadFormContent>) {
-  const { heading, subheading, sourceKey, subjectTypes = [], showMessage = true } = content
-  
-  const [formState, setFormState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+/**
+ * Writes to the leads table via /api/leads.
+ *
+ * There is no tenant_id in the payload — this database serves one business,
+ * and the insert policy allows anonymous writes so the public form works
+ * without auth. Everything else on that table is admin-read only.
+ */
+export function LeadFormBlock({ content }: BlockProps<LeadFormContent>) {
+  const {
+    heading,
+    subheading,
+    sourceKey,
+    subjectTypes = [],
+    showMessage = true,
+    submitLabel = 'Submit',
+    successHeading = 'Thank you',
+    successBody = "We've received your information and will be in touch soon.",
+  } = content
+
+  const [formState, setFormState] = useState<
+    'idle' | 'loading' | 'success' | 'error'
+  >('idle')
   const [errorMessage, setErrorMessage] = useState('')
-  
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFormState('loading')
     setErrorMessage('')
-    
+
     const formData = new FormData(e.currentTarget)
     const data = {
-      tenant_id: tenant.id,
       source: sourceKey,
       full_name: formData.get('full_name'),
       email: formData.get('email'),
@@ -29,51 +46,47 @@ export function LeadFormBlock({ content, tenant }: BlockProps<LeadFormContent>) 
       subject_type: formData.get('subject_type'),
       message: formData.get('message'),
     }
-    
+
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
-      
-      if (!res.ok) {
-        throw new Error('Failed to submit form')
-      }
-      
+
+      if (!res.ok) throw new Error('Failed to submit form')
+
       setFormState('success')
     } catch {
       setFormState('error')
       setErrorMessage('Something went wrong. Please try again.')
     }
   }
-  
+
   if (formState === 'success') {
     return (
-      <section className="py-16 md:py-24 bg-[var(--color-surface)]">
+      <section className="bg-[var(--color-surface)] py-16 md:py-24">
         <div className="container mx-auto px-4">
-          <div className="max-w-md mx-auto text-center">
-            <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold mb-2 font-[var(--font-heading)] text-[var(--color-foreground)]">
-              Thank You!
+          <div className="mx-auto max-w-md text-center">
+            <CheckCircle className="mx-auto mb-4 h-16 w-16 text-[var(--color-primary)]" />
+            <h2 className="mb-2 font-[var(--font-heading)] text-2xl font-bold text-[var(--color-foreground)]">
+              {successHeading}
             </h2>
-            <p className="text-[var(--color-muted)]">
-              We&apos;ve received your information and will be in touch soon.
-            </p>
+            <p className="text-[var(--color-muted)]">{successBody}</p>
           </div>
         </div>
       </section>
     )
   }
-  
+
   return (
-    <section className="py-16 md:py-24 bg-[var(--color-surface)]">
+    <section className="bg-[var(--color-surface)] py-16 md:py-24">
       <div className="container mx-auto px-4">
-        <div className="max-w-md mx-auto">
+        <div className="mx-auto max-w-md">
           {(heading || subheading) && (
-            <div className="text-center mb-8">
+            <div className="mb-8 text-center">
               {heading && (
-                <h2 className="text-3xl font-bold mb-2 font-[var(--font-heading)] text-[var(--color-foreground)]">
+                <h2 className="mb-2 font-[var(--font-heading)] text-3xl font-bold text-[var(--color-foreground)]">
                   {heading}
                 </h2>
               )}
@@ -82,18 +95,19 @@ export function LeadFormBlock({ content, tenant }: BlockProps<LeadFormContent>) 
               )}
             </div>
           )}
-          
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="full_name">Full Name</Label>
+              <Label htmlFor="full_name">Full name</Label>
               <Input
                 id="full_name"
                 name="full_name"
                 required
-                className="bg-[var(--color-background)] border-[var(--color-border)]"
+                autoComplete="name"
+                className="border-[var(--color-border)] bg-[var(--color-background)]"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="email">Email</Label>
               <Input
@@ -101,36 +115,40 @@ export function LeadFormBlock({ content, tenant }: BlockProps<LeadFormContent>) 
                 name="email"
                 type="email"
                 required
-                className="bg-[var(--color-background)] border-[var(--color-border)]"
+                autoComplete="email"
+                className="border-[var(--color-border)] bg-[var(--color-background)]"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="phone">Phone</Label>
               <Input
                 id="phone"
                 name="phone"
                 type="tel"
-                className="bg-[var(--color-background)] border-[var(--color-border)]"
+                autoComplete="tel"
+                className="border-[var(--color-border)] bg-[var(--color-background)]"
               />
             </div>
-            
+
             {subjectTypes.length > 0 && (
               <div>
                 <Label htmlFor="subject_type">I&apos;m interested in</Label>
                 <select
                   id="subject_type"
                   name="subject_type"
-                  className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+                  className="w-full rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
                 >
                   <option value="">Select an option</option>
                   {subjectTypes.map((type) => (
-                    <option key={type} value={type}>{type}</option>
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
                   ))}
                 </select>
               </div>
             )}
-            
+
             {showMessage && (
               <div>
                 <Label htmlFor="message">Message</Label>
@@ -138,27 +156,30 @@ export function LeadFormBlock({ content, tenant }: BlockProps<LeadFormContent>) 
                   id="message"
                   name="message"
                   rows={4}
-                  className="bg-[var(--color-background)] border-[var(--color-border)]"
+                  className="border-[var(--color-border)] bg-[var(--color-background)]"
                 />
               </div>
             )}
-            
+
             {formState === 'error' && (
-              <p className="text-red-500 text-sm">{errorMessage}</p>
+              <p role="alert" className="text-sm text-[var(--color-danger,#DC2626)]">
+                {errorMessage}
+              </p>
             )}
-            
+
             <Button
               type="submit"
               disabled={formState === 'loading'}
-              className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-white"
+              className="w-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] hover:bg-[var(--color-primary)]/90"
+              style={{ borderRadius: 'var(--radius-button)' }}
             >
               {formState === 'loading' ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Submitting...
+                  Submitting…
                 </>
               ) : (
-                'Submit'
+                submitLabel
               )}
             </Button>
           </form>
