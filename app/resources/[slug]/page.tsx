@@ -204,7 +204,7 @@ export default async function ResourceSlugPage({ params }: RouteProps) {
     excerpt: post.excerpt,
     featured_image_url: post.featured_image_url,
     published_at: post.published_at,
-    updated_at: post.published_at,
+    updated_at: post.published_at ?? new Date().toISOString(),
     author: post.author,
     word_count: post.word_count,
   })

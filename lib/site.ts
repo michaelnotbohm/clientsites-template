@@ -42,7 +42,7 @@ export type {
  */
 function normalizeSite(raw: Record<string, unknown>): SiteSettings {
   return {
-    ...(raw as SiteSettings),
+    ...(raw as unknown as SiteSettings),
     theme: { ...defaultTheme, ...((raw.theme as SiteTheme) ?? {}) },
     nav: (raw.nav as SiteNavConfig) ?? { links: [] },
     footer: (raw.footer as SiteFooterConfig) ?? {},

@@ -8,9 +8,7 @@ import { SectionContentForm } from "@/components/admin/section-content-form";
 
 export const dynamic = "force-dynamic";
 
-type SectionContent = ComponentProps
-  typeof SectionContentForm
->["initialContent"];
+type SectionContent = ComponentProps<typeof SectionContentForm>['initialContent'];
 
 export default async function AdminSectionEditPage({
   params,
