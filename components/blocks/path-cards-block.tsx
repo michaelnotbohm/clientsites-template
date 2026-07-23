@@ -95,7 +95,7 @@ export function PathCardsBlock({
       <section className="bg-[var(--color-background)] py-16 md:py-24">
         <div className="container mx-auto px-4">
           {sectionHeading}
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {cards.map((card, index) => (
               <Link
                 key={index}
