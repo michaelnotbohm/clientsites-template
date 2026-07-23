@@ -1,57 +1,73 @@
 // app/sitemap.ts
 //
-// Dynamic, per-tenant XML sitemap. Next.js serves this at /sitemap.xml.
+// Generated from site.domain, never from the request host or a constant.
+// An origin URL leaking in here re-introduces the canonical problem the whole
+// SEO layer exists to prevent.
 //
-// Every URL is computed from the host-resolved tenant's primary domain — never
-// from a code constant or the origin domain. Posts live under /resources/<slug>
-// to match the site's blog route. If the tenant is noindex, the sitemap is
-// returned empty so nothing is advertised for crawling.
+// Respects both site-level and page-level noindex: a hidden page must not
+// appear in the sitemap, or the noindex tag and the sitemap contradict
+// each other.
 
-import type { MetadataRoute } from "next";
-import {
-  getTenantByHost,
-  getIndexablePages,
-  getIndexablePosts,
-  tenantUrl,
-} from "@/lib/seo/get-tenant-by-host";
+import type { MetadataRoute } from 'next'
+import { getSite, getPages, siteUrl } from '@/lib/site'
+import { getPostSlugs, getCategories } from '@/lib/resources/queries'
 
-// Always evaluate at request time — the host header is required to resolve the
-// tenant, and content changes (new posts) must appear without a rebuild.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-const BLOG_PREFIX = "resources"; // posts are served at /resources/<slug>
+export const revalidate = 3600
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const tenant = await getTenantByHost();
-  if (!tenant || tenant.noindex) return [];
+  const site = await getSite()
 
-  const [pages, posts] = await Promise.all([
-    getIndexablePages(tenant.id),
-    getIndexablePosts(tenant.id),
-  ]);
+  // No site configured, or the whole site is hidden during build.
+  if (!site || site.noindex) return []
 
-  const entries: MetadataRoute.Sitemap = [];
+  const [pages, posts, categories] = await Promise.all([
+    getPages(),
+    getPostSlugs(),
+    getCategories(),
+  ])
+
+  const entries: MetadataRoute.Sitemap = []
 
   for (const page of pages) {
-    const path = page.slug === "/" ? "" : page.slug;
+    if (page.noindex) continue
+
+    const path = page.slug === '/' ? '/' : `/${page.slug.replace(/^\//, '')}`
+    const isHome = path === '/'
+
     entries.push({
-      url: tenantUrl(tenant.primaryDomain, path),
-      lastModified: page.updatedAt ? new Date(page.updatedAt) : undefined,
-      changeFrequency: page.slug === "/" ? "weekly" : "monthly",
-      priority: page.slug === "/" ? 1.0 : 0.8,
-    });
+      url: siteUrl(site, path),
+      lastModified: new Date(page.updated_at),
+      changeFrequency: isHome ? 'weekly' : 'monthly',
+      priority: isHome ? 1 : 0.8,
+    })
+  }
+
+  if (posts.length > 0) {
+    entries.push({
+      url: siteUrl(site, '/resources'),
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.7,
+    })
+  }
+
+  for (const category of categories) {
+    entries.push({
+      url: siteUrl(site, `/resources/${category.slug}`),
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.6,
+    })
   }
 
   for (const post of posts) {
-    const last = post.updatedAt ?? post.publishedAt;
     entries.push({
-      url: tenantUrl(tenant.primaryDomain, `${BLOG_PREFIX}/${post.slug}`),
-      lastModified: last ? new Date(last) : undefined,
-      changeFrequency: "monthly",
+      url: siteUrl(site, `/resources/${post.slug}`),
+      lastModified: new Date(post.updated_at || post.published_at || Date.now()),
+      changeFrequency: 'monthly',
       priority: 0.6,
-    });
+    })
   }
 
-  return entries;
+  return entries
 }
