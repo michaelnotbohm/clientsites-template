@@ -1,6 +1,36 @@
 import Link from 'next/link'
-import { ArrowRight, Home, DollarSign, Shield, FileText, Users, TrendingUp, Building, Key, Briefcase, Heart, Clock, Share2 } from 'lucide-react'
+import {
+  ArrowRight,
+  Home,
+  DollarSign,
+  Shield,
+  FileText,
+  Users,
+  TrendingUp,
+  Building,
+  Key,
+  Briefcase,
+  Heart,
+  Clock,
+  Share2,
+  Link2,
+  Mail,
+  Target,
+  Handshake,
+  Search,
+  MessageCircle,
+  BarChart3,
+  Compass,
+  Lightbulb,
+  Award,
+} from 'lucide-react'
 import type { BlockProps, FeatureGridContent } from './types'
+
+/**
+ * Icon names are stored as strings in section content so a non-technical
+ * editor can pick one without touching code. Add to this map rather than
+ * importing icons at the call site.
+ */
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   home: Home,
   dollar: DollarSign,
@@ -14,9 +44,23 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   heart: Heart,
   clock: Clock,
   share: Share2,
+  link: Link2,
+  mail: Mail,
+  target: Target,
+  handshake: Handshake,
+  search: Search,
+  message: MessageCircle,
+  chart: BarChart3,
+  compass: Compass,
+  idea: Lightbulb,
+  award: Award,
 }
-export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<FeatureGridContent>) {
-  const { heading, subheading, intro, items } = content as FeatureGridContent & { intro?: string }
+
+export function FeatureGridBlock({
+  content,
+  variant = 'default',
+}: BlockProps<FeatureGridContent>) {
+  const { heading, subheading, intro, items } = content
 
   if (!items || items.length === 0) return null
 
@@ -25,17 +69,17 @@ export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<Fe
 
   if (isWhyUs) {
     return (
-      <section className="py-16 md:py-24 bg-[var(--color-background)]">
+      <section className="bg-[var(--color-background)] py-16 md:py-24">
         <div className="container mx-auto px-4">
-          <div className="mx-auto max-w-2xl mb-12 text-center">
+          <div className="mx-auto mb-12 max-w-2xl text-center">
             {heading && (
-              <h2 className="text-3xl md:text-4xl font-bold mb-4 font-[var(--font-heading)] text-[var(--color-secondary)]">
+              <h2 className="mb-4 font-[var(--font-heading)] text-3xl font-bold text-[var(--color-secondary)] md:text-4xl">
                 {heading}
               </h2>
             )}
-            {intro && (
-              <p className="text-lg text-[var(--color-foreground)]/70 leading-relaxed">
-                {intro}
+            {(intro || subheading) && (
+              <p className="text-lg leading-relaxed text-[var(--color-foreground)]/70">
+                {intro || subheading}
               </p>
             )}
           </div>
@@ -45,13 +89,15 @@ export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<Fe
               const Icon = item.icon ? iconMap[item.icon] : null
               return (
                 <div key={index} className="flex flex-col">
-                  <div className="flex items-center gap-3 mb-3">
-                    {Icon && <Icon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />}
-                    <h3 className="text-lg font-bold font-[var(--font-heading)] text-[var(--color-secondary)]">
+                  <div className="mb-3 flex items-center gap-3">
+                    {Icon && (
+                      <Icon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />
+                    )}
+                    <h3 className="font-[var(--font-heading)] text-lg font-bold text-[var(--color-secondary)]">
                       {item.title}
                     </h3>
                   </div>
-                  <p className="text-[var(--color-foreground)]/70 leading-relaxed">
+                  <p className="leading-relaxed text-[var(--color-foreground)]/70">
                     {item.body}
                   </p>
                 </div>
@@ -67,35 +113,38 @@ export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<Fe
     <section className="py-16 md:py-24">
       <div className="container mx-auto px-4">
         {(heading || subheading) && (
-          <div className="text-center mb-12">
+          <div className="mb-12 text-center">
             {heading && (
-              <h2 className="text-3xl md:text-4xl font-bold mb-4 font-[var(--font-heading)] text-[var(--color-foreground)]">
+              <h2 className="mb-4 font-[var(--font-heading)] text-3xl font-bold text-[var(--color-foreground)] md:text-4xl">
                 {heading}
               </h2>
             )}
             {subheading && (
-              <p className="text-lg text-[var(--color-muted)] max-w-2xl mx-auto">
+              <p className="mx-auto max-w-2xl text-lg text-[var(--color-muted)]">
                 {subheading}
               </p>
             )}
           </div>
         )}
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {items.map((item, index) => {
             const Icon = item.icon ? iconMap[item.icon] : null
 
             const cardContent = (
               <>
                 {Icon && (
-                  <div className="w-12 h-12 rounded-lg bg-[var(--color-primary)]/10 flex items-center justify-center mb-4">
+                  <div
+                    className="mb-4 flex h-12 w-12 items-center justify-center bg-[var(--color-primary)]/10"
+                    style={{ borderRadius: 'var(--radius)' }}
+                  >
                     <Icon className="h-6 w-6 text-[var(--color-primary)]" />
                   </div>
                 )}
-                <h3 className="text-xl font-semibold mb-2 font-[var(--font-heading)] text-[var(--color-foreground)]">
+                <h3 className="mb-2 font-[var(--font-heading)] text-xl font-semibold text-[var(--color-foreground)]">
                   {item.title}
                 </h3>
-                <p className="text-[var(--color-muted)] mb-4 leading-relaxed">
+                <p className="mb-4 leading-relaxed text-[var(--color-muted)]">
                   {item.body}
                 </p>
                 {item.href && (
@@ -107,7 +156,7 @@ export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<Fe
               </>
             )
 
-            const cardClassName = `group p-6 rounded-lg transition-all ${
+            const cardClassName = `group p-6 transition-all ${
               isCards
                 ? 'bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-primary)] hover:shadow-lg'
                 : 'hover:bg-[var(--color-surface)]'
@@ -115,14 +164,23 @@ export function FeatureGridBlock({ content, variant = 'default' }: BlockProps<Fe
 
             if (item.href) {
               return (
-                <Link key={index} href={item.href} className={cardClassName}>
+                <Link
+                  key={index}
+                  href={item.href}
+                  className={cardClassName}
+                  style={{ borderRadius: 'var(--radius)' }}
+                >
                   {cardContent}
                 </Link>
               )
             }
 
             return (
-              <div key={index} className={cardClassName}>
+              <div
+                key={index}
+                className={cardClassName}
+                style={{ borderRadius: 'var(--radius)' }}
+              >
                 {cardContent}
               </div>
             )
